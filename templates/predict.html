@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+{% load static %}
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>미리봄 — 예측 중</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+    <link rel="stylesheet" href="{% static 'style.css' %}">
+</head>
+
+<body>
+    <!-- 화면 2 · 예측 진행
+         JS가 /get_result/ 를 호출해 예측을 돌린 뒤 /result/ 로 이동합니다. -->
+    <section class="screen active" id="sc2">
+    <div class="load">
+
+        <div class="radar">
+        <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
+        <div class="sweep"></div>
+        <div class="blip b1"></div><div class="blip b2"></div>
+        <output class="tt mono" id="outTime">{{ time_label }}</output>
+        </div>
+
+        <div class="load-t" id="loadTitle">예정 시점의 혼잡도를<br>확인하고 있어요</div>
+
+        <div class="checks">
+        <div class="chk on"><span class="ic"><span class="sp"></span></span>
+            <output id="outStep1">{{ loc }} 반경 {{ dist }}km 급속충전소 탐색</output></div>
+        <div class="chk on"><span class="ic"><span class="sp"></span></span>
+            <span>과거 충전 이력의 시간대별 패턴 분석</span></div>
+        <div class="chk on"><span class="ic"><span class="sp"></span></span>
+            <output id="outStep3">{{ date }} {{ time_label }} 기준 혼잡도 계산</output></div>
+        </div>
+
+        <div class="pbar"><i style="width:100%;transition:width 1.9s linear;"></i></div>
+        <div class="load-note" id="loadNote">잠시 후 결과 화면으로 이동합니다</div>
+
+        <noscript><p class="load-note">이 화면은 자바스크립트가 필요합니다.</p></noscript>
+    </div>
+    </section>
+
+    <script>
+    (function () {
+        var COND = {
+            date: "{{ date|escapejs }}",
+            time: "{{ time|escapejs }}",
+            dist: "{{ dist|escapejs }}",
+            kw:   "{{ kw|escapejs }}",
+            loc:  "{{ loc|escapejs }}",
+            lon:  "{{ x|escapejs }}",
+            lat:  "{{ y|escapejs }}"
+        };
+
+        /* 로딩 애니메이션이 최소 1.9초는 보이도록 (계산이 빨리 끝나도 화면이 튀지 않게) */
+        var MIN_WAIT = 1900;
+        var started = Date.now();
+
+        function fail(message) {
+            document.getElementById("loadTitle").innerHTML = "결과를 불러오지 못했어요";
+            var note = document.getElementById("loadNote");
+            note.innerHTML = (message || "잠시 후 다시 시도해 주세요.") +
+                '<br><a class="cta" style="margin-top:16px;" href="/">처음으로</a>';
+        }
+
+        var qs = new URLSearchParams({
+            date: COND.date, time: COND.time, dist: COND.dist,
+            kw: COND.kw, lon: COND.lon, lat: COND.lat, loc: COND.loc
+        });
+
+        fetch("/get_result/?" + qs.toString())
+            .then(function (res) {
+                return res.json().then(function (data) {
+                    return { status: res.status, data: data };
+                });
+            })
+            .then(function (r) {
+                if (r.status !== 200 || r.data.ok === false) {
+                    fail(r.data.message);
+                    return;
+                }
+                /* 결과는 서버 세션에 저장돼 있습니다. /result/ 가 그걸 읽어 그립니다. */
+                var wait = Math.max(0, MIN_WAIT - (Date.now() - started));
+                setTimeout(function () {
+                    location.replace(r.data.redirect || "/result/");
+                }, wait);
+            })
+            .catch(function (e) {
+                console.error(e);
+                fail("서버와 통신하지 못했습니다.");
+            });
+    })();
+    </script>
+
+</body>
+</html>

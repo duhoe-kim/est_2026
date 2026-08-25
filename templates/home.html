@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+{% load static %}
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>미리봄 — 충전 계획</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+    <link rel="stylesheet" href="{% static 'style.css' %}">
+    <style>
+      /* ══════════════════════════════════════════════════════════════
+         홈 화면 폭 — Galaxy S20 Ultra 기준
+         S20 Ultra 는 물리 해상도 1440×3200 이지만 DPR 이 3.5 라서
+         브라우저가 쓰는 CSS 뷰포트는 412×915 px 입니다.
+         그 412px 를 기준으로 잡고, 더 넓은 화면에서는 가운데 정렬합니다.
+         ══════════════════════════════════════════════════════════════ */
+      :root { --shell: 412px; }
+
+      body.home {
+        max-width: var(--shell);
+        margin: 0 auto;
+        min-height: 100vh;
+        min-height: 100dvh;          /* 모바일 주소창 높이 변화 대응 */
+        background: var(--bg);
+        overflow-x: hidden;
+      }
+
+      /* 폼 필드가 좌우 여백 없이 화면 끝에 붙어 있던 것을 카드(.pc)와
+         같은 라인(14px)으로 맞춥니다. 다른 화면은 .pc/.recond 가
+         자체 margin 을 갖고 있어서 이 문제가 없었습니다. */
+      #sc1 {
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-bottom: calc(22px + env(safe-area-inset-bottom, 0px));
+      }
+      /* .cta 와 .p-foot 은 자체 margin 이 있어 폼 padding 과 겹칩니다 */
+      #sc1 .cta    { width: 100%; margin-left: 0; margin-right: 0; }
+      #sc1 .p-foot { margin-left: 0; margin-right: 0; }
+      #sc1 .err    { margin-left: 0; margin-right: 0; }
+
+      /* 헤더·카드도 같은 폭 안에서 정렬되도록 */
+      .p-head { padding-left: 16px; padding-right: 16px; }
+      .pc     { margin-left: 14px; margin-right: 14px; }
+
+      /* 위치 입력 + ‘장소 찾기’ 버튼: 좁은 화면에서 버튼이 눌리지 않게 */
+      #sc1 .recond-row { gap: 7px; }
+      #sc1 #inLoc { min-width: 0; }
+      #sc1 .recond-row .btn-sm { flex-shrink: 0; }
+
+      /* 출력 용량 4칸이 412px 에서 빠듯해 글자가 잘리는 것 방지 */
+      .segs.c4 .seg { font-size: 10.5px; padding: 10px 2px; }
+
+      /* 아주 좁은 기기(360px 급) 보정 */
+      @media (max-width: 380px) {
+        #sc1 { padding-left: 12px; padding-right: 12px; }
+        .p-head { padding-left: 14px; padding-right: 14px; }
+        .pc { margin-left: 12px; margin-right: 12px; }
+        .segs.c4 .seg { font-size: 10px; letter-spacing: -.04em; }
+      }
+    </style>
+</head>
+
+<body class="page home">
+
+    <div class="p-head">
+        <div class="p-head-top">
+        <div style="display:flex;align-items:center;gap:9px;">
+            <span class="p-logo"><svg width="14" height="14" viewBox="0 0 24 24" fill="#052E1F"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2z"/></svg></span>
+            <div><div class="p-bn">미리봄</div><div class="p-bs">EV AHEAD · JEJU</div></div>
+        </div>
+        <span class="p-tag">가상 데모</span>
+        </div>
+        <div class="p-slogan">가장 빠른 충전은,<br><em>기다리지 않는 충전</em>입니다.</div>
+        <div class="p-desc">방문 예정 시점의 급속충전소 예상 혼잡도를 미리 확인하세요.</div>
+    </div>
+
+    <div class="pc">
+        <div class="ttl">
+        <span class="tico">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+        </span>
+        <div class="pc-t" style="margin:0;">나의 충전 계획</div>
+        </div>
+
+        <div class="fastnote">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4.5 13.5H11L9.5 22 19 10h-6.5L13 2z"/></svg>
+        미리봄은 급속충전소 전용 서비스입니다
+        </div>
+    </div>
+
+    {% if error %}<div class="err" style="margin:12px 0;">{{ error }}</div>{% endif %}
+
+    <form method="POST" class="screen active" id="sc1" action="{% url 'predict' %}">
+        {% csrf_token %}
+        <div class="row2">
+            <div class="fld">
+                <label for="inDate">예정 날짜</label>
+                <input class="ctl" type="date" id="inDate" name="date" value="{{ form.date }}" required>
+            </div>
+            <!-- 예측은 정시 단위라서 분은 고를 필요가 없습니다 -->
+            <div class="fld">
+                <label for="inTime">예정 시간</label>
+                <select class="ctl" id="inTime" name="time" required>
+                    {% for h in hours %}
+                    <option value="{{ h.value }}" {% if form.time == h.value %}selected{% endif %}>{{ h.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <!-- 예정 위치 : 직접 타이핑하지 않고 ‘장소 찾기’에서 골라 옵니다.
+             고른 결과의 좌표는 hidden 으로 함께 넘어가므로 서버가 다시 지오코딩하지 않습니다. -->
+        <div class="fld">
+            <label for="inLoc">예정 위치</label>
+            <div class="recond-row">
+                <input class="ctl" type="text" id="inLoc" name="loc" value="{{ form.loc }}"
+                       placeholder="‘장소 찾기’를 눌러 검색하세요" required autocomplete="off">
+                <button class="btn-sm" type="submit" formaction="{% url 'search' %}" formnovalidate>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+                    장소 찾기
+                </button>
+            </div>
+            {% if form.lat %}
+              <div class="mdim" style="position:static;margin-top:6px;">
+                선택한 좌표 · {{ form.lat }}, {{ form.lng }}
+              </div>
+            {% endif %}
+            <input type="hidden" name="lat" id="inLat" value="{{ form.lat }}">
+            <input type="hidden" name="lng" id="inLng" value="{{ form.lng }}">
+            <!-- 장소 찾기가 끝나면 이 화면으로 돌아옵니다 -->
+            <input type="hidden" name="next" value="{% url 'home' %}">
+        </div>
+
+        <div class="fld">
+            <label>검색 반경</label>
+            <div class="segs c3">
+                <input type="radio" name="dist" id="rad1" value="1" {% if form.dist == '1' %}checked{% endif %}><label class="seg" for="rad1">1km</label>
+                <input type="radio" name="dist" id="rad3" value="3" {% if form.dist == '3' %}checked{% endif %}><label class="seg" for="rad3">3km</label>
+                <input type="radio" name="dist" id="rad5" value="5" {% if form.dist == '5' %}checked{% endif %}><label class="seg" for="rad5">5km</label>
+            </div>
+        </div>
+
+        <div class="fld">
+            <label>출력 용량 (kW)</label>
+            <div class="segs c4">
+                <input type="radio" name="kw" id="kw0" value="0" {% if form.kw == '0' %}checked{% endif %}><label class="seg" for="kw0">전체</label>
+                <input type="radio" name="kw" id="kw50" value="50" {% if form.kw == '50' %}checked{% endif %}><label class="seg" for="kw50">50–100</label>
+                <input type="radio" name="kw" id="kw100" value="100" {% if form.kw == '100' %}checked{% endif %}><label class="seg" for="kw100">100–200</label>
+                <input type="radio" name="kw" id="kw200" value="200" {% if form.kw == '200' %}checked{% endif %}><label class="seg" for="kw200">200 이상</label>
+            </div>
+        </div>
+
+        <button class="cta" type="submit">예상 혼잡도 확인하기</button>
+        <div class="p-foot">예상 혼잡도는 과거 이력 패턴 기반 추정치이며, 실제 빈자리를 보장하지 않습니다.</div>
+    </form>
+
+    <script>
+    /* 날짜 기본값·범위만 채웁니다. 값이 이미 있으면 건드리지 않습니다. */
+    (function () {
+        var p = function (n) { return String(n).padStart(2, '0'); };
+        var d = new Date();
+        var today = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+        var max = new Date(d.getTime() + 90 * 864e5);
+        var el = document.getElementById('inDate');
+        if (!el.value) el.value = today;
+        el.min = today;
+        el.max = max.getFullYear() + '-' + p(max.getMonth() + 1) + '-' + p(max.getDate());
+
+        /* 위치를 손으로 고치면 이전에 고른 좌표는 무효로 본다 (서버가 다시 지오코딩) */
+        var loc = document.getElementById('inLoc');
+        var picked = loc.value;
+        loc.addEventListener('input', function () {
+            if (loc.value !== picked) {
+                document.getElementById('inLat').value = '';
+                document.getElementById('inLng').value = '';
+            }
+        });
+    })();
+    </script>
+</body>
+</html>

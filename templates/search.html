@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+{% load static %}
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>미리봄 — 장소 찾기</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="{% static 'style.css' %}">
+  <style>
+    /* 검색 화면 전용 최소 스타일 (style.css 를 건드리지 않기 위해 여기에 둡니다) */
+    .sr-list { display:flex; flex-direction:column; gap:8px; margin-top:12px; }
+    .sr-item { display:flex; gap:10px; align-items:flex-start; width:100%; text-align:left;
+               padding:12px 13px; border-radius:12px; cursor:pointer;
+               background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.10);
+               color:inherit; font:inherit; }
+    .sr-item:hover { background:rgba(255,255,255,.07); }
+    .sr-item.on { border-color:#34D399; background:rgba(52,211,153,.12); }
+    .sr-rk { flex:0 0 22px; height:22px; border-radius:50%; display:grid; place-items:center;
+             font:800 12px/1 sans-serif; background:#34D399; color:#04231A; }
+    .sr-body { flex:1; min-width:0; }
+    .sr-name { font-weight:700; font-size:15px; }
+    .sr-addr { font-size:12.5px; opacity:.7; margin-top:3px; word-break:keep-all; }
+    .sr-tag  { font-size:11px; opacity:.55; margin-top:4px; }
+    .sr-note { font-size:12.5px; opacity:.7; margin-top:10px; }
+    .sr-bar  { display:flex; gap:8px; }
+    .sr-bar .ctl { flex:1; }
+    .sr-dbg { margin-top:9px; font-size:11px; color:var(--mut); }
+    .sr-dbg summary { cursor:pointer; font-weight:700; }
+    .sr-dbg pre { white-space:pre-wrap; word-break:break-all; margin-top:6px;
+                  background:var(--card2); border:1px solid var(--line-soft);
+                  border-radius:8px; padding:9px 10px; font-size:10.5px; line-height:1.55; }
+  </style>
+</head>
+<body class="page">
+
+<section class="screen active">
+
+  <div class="res-head">
+    <div class="res-top">
+      <a class="btn-sm" href="{{ next }}" style="padding:8px 10px;" aria-label="뒤로">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>
+      </a>
+      <div class="ttl">
+        <span class="tico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></span>
+        <div class="res-h">장소 찾기</div>
+      </div>
+    </div>
+    <!-- 입력해 둔 조건은 세션에 남아 있습니다. 돌아가면 그대로 복원됩니다. -->
+    <div class="res-sub">
+      {{ form.date }} {{ form.time }} · 반경 {{ form.dist }}km
+    </div>
+  </div>
+
+  <div class="pc">
+    <div class="sr-bar">
+      <input class="ctl" type="search" id="q" value="{{ form.loc }}"
+             placeholder="장소 이름이나 주소 (예: 제주국제공항, 제주시 문연로 6)" autocomplete="off">
+      <button class="btn-sm" type="button" id="btnSearch">검색</button>
+    </div>
+    <div class="sr-note" id="note">이름으로도, 도로명·지번 주소로도 찾을 수 있어요.</div>
+    <details class="sr-dbg" id="dbg" style="display:none;">
+      <summary>검색 API 진단</summary>
+      <pre id="dbgBody"></pre>
+    </details>
+  </div>
+
+  <div class="resmap" id="resMap">
+    <svg viewBox="0 0 360 200" preserveAspectRatio="none" id="resMapBg">
+      <g stroke="#1B2942" stroke-width="1"><path d="M0 50H360M0 100H360M0 150H360M90 0V200M180 0V200M270 0V200"/></g>
+      <g stroke="#26364C" stroke-linecap="round">
+        <path d="M-15 68L380 42" stroke-width="12"/><path d="M64 -15L214 215" stroke-width="10"/><path d="M-15 158L380 132" stroke-width="8"/>
+      </g>
+    </svg>
+    <div class="mdim" id="resMapTag" style="left:12px;top:11px;">검색하면 지도에 표시됩니다</div>
+  </div>
+
+  <div class="sr-list" id="list"></div>
+
+  <!-- 고른 장소를 세션에 저장하고, 들어온 화면(next)으로 되돌아갑니다 -->
+  <form method="POST" action="{% url 'select_place' %}" id="pickForm" style="margin-top:16px;">
+    {% csrf_token %}
+    <input type="hidden" name="loc" id="pickLoc">
+    <input type="hidden" name="lat" id="pickLat">
+    <input type="hidden" name="lng" id="pickLng">
+    <input type="hidden" name="next" value="{{ next }}">
+    <button class="cta" type="submit" id="btnPick" disabled>이 장소로 계속하기</button>
+  </form>
+
+  <div class="p-foot">검색 결과는 네이버 지역검색·지오코딩 API를 사용합니다.</div>
+</section>
+
+<script>
+var MAP_CLIENT_ID = "{{ map_client_id|escapejs }}";
+var ITEMS = [];
+var PICKED = -1;
+var naverMap = null, naverMarkers = [];
+
+var qEl    = document.getElementById('q');
+var listEl = document.getElementById('list');
+var noteEl = document.getElementById('note');
+var btnPick = document.getElementById('btnPick');
+
+/* ─────────── 검색 ─────────── */
+function doSearch() {
+  var q = qEl.value.trim();
+  if (!q) { noteEl.textContent = '검색어를 입력해 주세요.'; return; }
+
+  noteEl.textContent = '검색 중…';
+  listEl.innerHTML = '';
+  ITEMS = []; PICKED = -1; btnPick.disabled = true;
+
+  fetch('/api/search-place/?q=' + encodeURIComponent(q))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      ITEMS = d.items || [];
+      showDebug(d.debug);
+
+      if (!ITEMS.length) {
+        noteEl.textContent = d.message || '결과가 없습니다.';
+        clearMap();
+        return;
+      }
+      noteEl.textContent = (d.notice ? d.notice + ' ' : '') +
+                           ITEMS.length + '곳을 찾았어요. 하나를 골라주세요.';
+      render();
+      drawMap();
+      pick(0);                       /* 첫 결과를 기본 선택 */
+    })
+    .catch(function (e) {
+      console.error(e);
+      noteEl.textContent = '검색 요청에 실패했습니다.';
+    });
+}
+
+document.getElementById('btnSearch').addEventListener('click', doSearch);
+qEl.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') { e.preventDefault(); doSearch(); }
+});
+
+/* 지역검색이 실패했을 때 엔드포인트별 응답을 그대로 펼쳐 보여줍니다.
+   (키가 문제인지 네트워크가 문제인지 바로 구분하려고) */
+function showDebug(lines) {
+  var box = document.getElementById('dbg');
+  if (!lines || !lines.length) { box.style.display = 'none'; return; }
+  document.getElementById('dbgBody').textContent = lines.join('\n');
+  box.style.display = 'block';
+}
+
+/* ─────────── 리스트 ─────────── */
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function render() {
+  listEl.innerHTML = ITEMS.map(function (it, i) {
+    return '<button type="button" class="sr-item" data-i="' + i + '">' +
+             '<span class="sr-rk">' + (i + 1) + '</span>' +
+             '<span class="sr-body">' +
+               '<span class="sr-name">' + esc(it.name) + '</span>' +
+               '<div class="sr-addr">' + esc(it.address || '') + '</div>' +
+               '<div class="sr-tag">' + esc(it.source) +
+                 (it.category ? ' · ' + esc(it.category) : '') + '</div>' +
+             '</span>' +
+           '</button>';
+  }).join('');
+
+  listEl.querySelectorAll('.sr-item').forEach(function (el) {
+    el.addEventListener('click', function () { pick(Number(el.dataset.i)); });
+  });
+}
+
+function pick(i) {
+  PICKED = i;
+  var it = ITEMS[i];
+
+  listEl.querySelectorAll('.sr-item').forEach(function (el, j) {
+    el.classList.toggle('on', j === i);
+  });
+
+  document.getElementById('pickLoc').value = it.name;
+  document.getElementById('pickLat').value = it.lat;
+  document.getElementById('pickLng').value = it.lng;
+  btnPick.disabled = false;
+  btnPick.textContent = '‘' + it.name + '’ 로 계속하기';
+
+  if (naverMap) {
+    naverMap.setCenter(new naver.maps.LatLng(it.lat, it.lng));
+    naverMap.setZoom(15);
+  }
+}
+
+/* ─────────── 지도 ─────────── */
+var PIN = '<svg viewBox="0 0 30 38" fill="none"><path d="M15 37s12-13.2 12-22A12 12 0 103 15c0 8.8 12 22 12 22z" fill="#34D399"/></svg>';
+
+function clearMap() {
+  document.getElementById('resMap').querySelectorAll('.pin').forEach(function (e) { e.remove(); });
+}
+
+function drawMap() {
+  clearMap();
+  drawFallbackMap(ITEMS);
+  drawNaverMap(ITEMS).catch(function () { /* 키가 없으면 대체 지도 유지 */ });
+}
+
+/* 지도 API가 없어도 좌표 위치를 대략 보여주는 대체 지도 */
+function drawFallbackMap(list) {
+  var box = document.getElementById('resMap');
+  var pad = 0.006;
+  var lats = list.map(function (p) { return p.lat; });
+  var lngs = list.map(function (p) { return p.lng; });
+  var y0 = Math.min.apply(null, lats) - pad, y1 = Math.max.apply(null, lats) + pad;
+  var x0 = Math.min.apply(null, lngs) - pad, x1 = Math.max.apply(null, lngs) + pad;
+
+  list.forEach(function (p, i) {
+    var d = document.createElement('div');
+    d.className = 'pin';
+    d.style.left = ((p.lng - x0) / (x1 - x0 || 1) * 74 + 13) + '%';
+    d.style.top  = ((1 - (p.lat - y0) / (y1 - y0 || 1)) * 62 + 22) + '%';
+    d.title = p.name;
+    d.innerHTML = PIN + '<span class="num">' + (i + 1) + '</span>';
+    d.addEventListener('click', function () { pick(i); });
+    box.appendChild(d);
+  });
+}
+
+function loadNaverScript() {
+  if (!MAP_CLIENT_ID) return Promise.reject();
+  if (window.naver && window.naver.maps) return Promise.resolve();
+  return new Promise(function (done, fail) {
+    var sc = document.createElement('script');
+    sc.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=' + MAP_CLIENT_ID;
+    sc.onload = done; sc.onerror = fail;
+    document.head.appendChild(sc);
+  });
+}
+
+function drawNaverMap(list) {
+  return loadNaverScript().then(function () {
+    var box = document.getElementById('resMap');
+    clearMap();
+    document.getElementById('resMapBg').style.display = 'none';
+    document.getElementById('resMapTag').style.display = 'none';
+
+    if (!naverMap) {
+      var host = document.createElement('div');
+      host.style.cssText = 'width:100%;height:100%;';
+      box.appendChild(host);
+      naverMap = new naver.maps.Map(host, {
+        center: new naver.maps.LatLng(list[0].lat, list[0].lng), zoom: 14
+      });
+    }
+
+    naverMarkers.forEach(function (m) { m.setMap(null); });
+    naverMarkers = [];
+
+    var bounds = new naver.maps.LatLngBounds();
+    list.forEach(function (p, i) {
+      var pos = new naver.maps.LatLng(p.lat, p.lng);
+      var mk = new naver.maps.Marker({ position: pos, map: naverMap, title: p.name, icon: {
+        content: '<div style="position:relative;width:30px;height:38px;cursor:pointer;">' +
+          '<svg viewBox="0 0 30 38" fill="none" style="position:absolute;inset:0;width:100%;height:100%;">' +
+          '<path d="M15 37s12-13.2 12-22A12 12 0 103 15c0 8.8 12 22 12 22z" fill="#34D399"/></svg>' +
+          '<span style="position:relative;display:block;text-align:center;margin-top:6px;font:800 12px/1 sans-serif;color:#04231A;">' + (i + 1) + '</span></div>',
+        anchor: new naver.maps.Point(15, 38) } });
+      naver.maps.Event.addListener(mk, 'click', function () { pick(i); });
+      naverMarkers.push(mk);
+      bounds.extend(pos);
+    });
+    if (list.length > 1) naverMap.fitBounds(bounds);
+  });
+}
+
+/* 이전에 입력해 둔 위치가 있으면 들어오자마자 한 번 검색해 둡니다 */
+if (qEl.value.trim()) doSearch();
+</script>
+</body>
+</html>

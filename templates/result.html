@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+{% load static %}
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>미리봄 — 추천 결과</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+  <link rel="stylesheet" href="{% static 'style.css' %}">
+  <style>
+    /* ── 링크 색 고정 ───────────────────────────────────────────────
+       카드가 <a> 라서 브라우저 기본 :link / :visited 색(파랑·보라)이 먹습니다.
+       한 번 눌러본 충전소 이름이 어두운 보라로 변해 안 보이던 원인입니다. */
+    a { color: inherit; text-decoration: none; }
+    .card-link,
+    .card-link:link,
+    .card-link:visited,
+    .card-link:hover,
+    .card-link:active,
+    .card-link:focus { color: var(--ink); text-decoration: none; display: block; }
+
+    .card-link .rc-name,
+    .card-link:visited .rc-name { color: var(--ink); }
+    .card-link .st .v,
+    .card-link:visited .st .v { color: var(--ink); }
+    .card-link .btn-route,
+    .card-link:visited .btn-route { color: var(--em); }
+
+    /* 카드 간격 · 눌렀을 때 반응 */
+    .card-link + .card-link { margin-top: 10px; }
+    .card-link { margin: 10px 16px 0; border-radius: var(--r); }
+    .card-link:hover .rc { border-color: var(--em-line); }
+    .card-link:focus-visible { outline: 2px solid var(--em); outline-offset: 2px; }
+
+    /* ── 추천 이유 ─────────────────────────────────────────────── */
+    .why-box { margin: 2px 0 12px; display: flex; flex-direction: column; gap: 6px; }
+    .why-h { font-size: 8.5px; font-weight: 800; letter-spacing: .09em;
+             color: var(--mut); margin-bottom: 1px; }
+    .why { margin-bottom: 0; }
+
+    .res-sub { font-size: 11.5px; color: var(--sub); margin: 6px 0 0 46px; font-weight: 600; }
+
+    /* 위치를 바꿨지만 아직 재예측 전 */
+    .stale { margin: 9px 16px 0; padding: 10px 12px; border-radius: 10px;
+             font-size: 11.5px; line-height: 1.55; font-weight: 600;
+             color: var(--warn); background: rgba(251,191,36,.09);
+             border: 1px solid rgba(251,191,36,.35); }
+    .stale b { color: var(--ink); }
+
+    /* 재검색 폼 — 좁은 화면에서 버튼이 눌리지 않도록 */
+    .recond-row .btn-sm { flex-shrink: 0; }
+    .recond-row #reLoc { min-width: 0; flex: 1; }
+
+    /* ── 지도 ──────────────────────────────────────────────────── */
+    .resmap > div.nmap { width: 100%; height: 100%; }
+    .map-err { position: absolute; left: 12px; right: 12px; bottom: 11px; z-index: 5;
+               background: rgba(11,17,32,.92); border: 1px solid var(--line);
+               border-radius: 9px; padding: 9px 11px; font-size: 11px;
+               color: var(--sub); line-height: 1.5; }
+    .map-err b { color: var(--busy); }
+  </style>
+</head>
+<body class="page">
+
+<!-- 화면 3 · 추천 결과
+     데이터는 서버(make_prediction)가 세션에 담아둔 payload 하나뿐입니다. -->
+{{ payload|json_script:"payload-data" }}
+
+<section class="screen active" id="sc3">
+
+  <div class="res-head">
+    <div class="res-top">
+      <a class="btn-sm" href="{% url 'home' %}" style="padding:8px 10px;" aria-label="뒤로">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>
+      </a>
+      <div class="ttl">
+        <span class="tico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-5.6 7-11a7 7 0 10-14 0c0 5.4 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/></svg></span>
+        <div class="res-h" id="resTitle">추천 급속충전소</div>
+      </div>
+    </div>
+    <div class="res-sub" id="resSub"></div>
+  </div>
+
+  <!-- 조건 다시 고르기 — 값은 서버(세션)가 채웁니다.
+       ‘장소 찾기’ 는 홈과 같은 검색 화면으로 가고, 고르면 이 화면으로 돌아옵니다. -->
+  <form class="recond" method="POST" action="{% url 'predict' %}">
+    {% csrf_token %}
+    <div class="recond-row">
+      <input class="ctl mini" type="date" name="date" id="reDate" value="{{ form.date }}" required>
+      <select class="ctl mini" name="time" id="reTime" aria-label="예정 시간" required>
+        {% for h in hours %}
+        <option value="{{ h.value }}" {% if form.time == h.value %}selected{% endif %}>{{ h.label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="recond-row">
+      <input class="ctl mini" type="text" name="loc" id="reLoc" value="{{ form.loc }}" required autocomplete="off">
+      <button class="btn-sm" type="submit" formaction="{% url 'search' %}" formnovalidate>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+        장소 찾기
+      </button>
+    </div>
+    <div class="recond-row">
+      <select class="ctl mini" name="dist" id="reDist" aria-label="검색 반경(km)">
+        <option value="1">1km</option><option value="3">3km</option><option value="5">5km</option>
+      </select>
+      <select class="ctl mini" name="kw" id="reKw" aria-label="출력 용량(kW)">
+        <option value="0">전체</option><option value="50">50–100</option>
+        <option value="100">100–200</option><option value="200">200 이상</option>
+      </select>
+      <button class="btn-sm" type="submit">다시 검색</button>
+    </div>
+    <input type="hidden" name="lat" id="reLat" value="{{ form.lat }}">
+    <input type="hidden" name="lng" id="reLng" value="{{ form.lng }}">
+    <!-- 장소 찾기가 끝나면 이 결과 화면으로 되돌아옵니다 -->
+    <input type="hidden" name="next" value="{% url 'result' %}">
+  </form>
+
+  <!-- 위치만 바꾸고 아직 예측을 다시 안 돌렸을 때 안내 -->
+  <div class="stale" id="staleNote" style="display:none;">
+    위치를 <b id="staleLoc"></b> 로 바꿨습니다. 아래 결과는 이전 위치 기준이니
+    <b>다시 검색</b>을 눌러 갱신하세요.
+  </div>
+
+  <div class="resmap" id="resMap">
+    <svg viewBox="0 0 360 200" preserveAspectRatio="none" id="resMapBg">
+      <g stroke="#1B2942" stroke-width="1"><path d="M0 50H360M0 100H360M0 150H360M90 0V200M180 0V200M270 0V200"/></g>
+      <g stroke="#26364C" stroke-linecap="round">
+        <path d="M-15 68L380 42" stroke-width="12"/><path d="M64 -15L214 215" stroke-width="10"/><path d="M-15 158L380 132" stroke-width="8"/>
+      </g>
+    </svg>
+    <div class="mdim" id="resMapTag" style="left:12px;top:11px;">지도 불러오는 중…</div>
+  </div>
+  <div class="maplg"><span><i class="o"></i>예정 위치</span><span><i class="s"></i>추천 충전소</span></div>
+
+  <div id="cards"></div>
+  <div class="p-foot">이용 가능 대수와 혼잡도는 과거 이용 패턴으로 계산한 예측값이며, 실제 빈자리를 보장하지 않습니다.</div>
+</section>
+
+<script>
+var DATA   = JSON.parse(document.getElementById('payload-data').textContent);
+var COND   = DATA.cond || {};
+var ORIGIN = DATA.origin || {};
+var ITEMS  = DATA.items || [];
+var MAP_CLIENT_ID = "{{ map_client_id|escapejs }}";
+
+/* 조건 폼의 값은 서버가 세션에서 채웠습니다.
+   select 두 개만 저장된 값으로 맞춰 줍니다. */
+var FORM = {
+  date: "{{ form.date|escapejs }}", time: "{{ form.time|escapejs }}",
+  loc:  "{{ form.loc|escapejs }}",  dist: "{{ form.dist|escapejs }}",
+  kw:   "{{ form.kw|escapejs }}"
+};
+function setVal(id, v) { var el = document.getElementById(id); if (el && v) el.value = v; }
+setVal('reDist', FORM.dist || COND.dist);
+setVal('reKw',   FORM.kw   || COND.kw);
+if (!document.getElementById('reDate').value) setVal('reDate', COND.date);
+if (!document.getElementById('reLoc').value)  setVal('reLoc',  COND.loc);
+
+/* 장소 찾기로 위치만 바꾸고 돌아온 경우 — 아래 결과는 아직 이전 위치 기준 */
+if (FORM.loc && COND.loc && FORM.loc !== COND.loc) {
+  document.getElementById('staleLoc').textContent = FORM.loc;
+  document.getElementById('staleNote').style.display = 'block';
+}
+
+var GRADE = { '여유': 'b-free', '보통': 'b-warn', '혼잡': 'b-busy' };
+function badgeOf(level) { return GRADE[level] || 'b-warn'; }
+function freeOf(s) {
+  return Math.max(0, Math.min(s.chargers, Math.round(s.chargers * (1 - s.congestion_prob))));
+}
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+var title = document.getElementById('resTitle');
+var sub   = document.getElementById('resSub');
+var cards = document.getElementById('cards');
+
+if (DATA.ok === false || !ITEMS.length) {
+  title.textContent = '조건에 맞는 충전소가 없어요';
+  cards.innerHTML = '<div class="empty"><h4>' + esc(DATA.message || '조건에 맞는 급속충전소가 없어요') + '</h4>' +
+                    '<p>검색 반경을 넓히거나<br>출력 용량 조건을 ‘전체’로 바꿔보세요.</p></div>';
+  document.getElementById('resMapTag').textContent = '표시할 위치가 없습니다';
+} else {
+  var best = ITEMS[0];
+  title.innerHTML = best.level === '여유' ? '이 시간엔 <b>여유 있는 곳</b>이 있어요'
+                  : best.level === '보통' ? '<b>무난한 곳</b>을 찾았어요'
+                  : '조건 내 충전소가 <b>다소 붐벼요</b>';
+
+  var when = new Date(DATA.when);
+  var whenText = isNaN(when) ? '' :
+    (when.getMonth() + 1) + '월 ' + when.getDate() + '일 ' +
+    String(when.getHours()).padStart(2, '0') + ':00';
+  sub.textContent = whenText + ' · 반경 ' + DATA.radius_km + 'km · 후보 ' + DATA.n_candidates + '곳';
+
+  cards.innerHTML = ITEMS.map(function (s, i) {
+    /* 추천 이유 — 서버(services.build_reasons)가 만들어 준 문장 */
+    var why = (s.reasons || []).slice(0, 2).map(function (t) {
+      return '<div class="why">' + esc(t) + '</div>';
+    }).join('');
+
+    return '<a class="card-link" href="/detail/?pick=' + encodeURIComponent(s.name) + '">' +
+      '<div class="pc rc' + (i === 0 ? ' best' : '') + '">' +
+        '<div class="rc-top"><div class="rk">' + s.rank + '</div>' +
+        '<span class="badge ' + badgeOf(s.level) + '"><i></i>' + esc(s.level) + '</span></div>' +
+        '<div class="name-row"><span class="rc-name">' + esc(s.name) + '</span></div>' +
+        '<div class="rc-stats">' +
+          '<div class="st"><div class="l">거리</div>' +
+            '<div class="v mono">' + s.distance_km.toFixed(1) + '<small>km</small></div></div>' +
+          '<div class="st"><div class="l">이용 가능 <span class="est">예측</span></div>' +
+            '<div class="v mono">' + freeOf(s) + '<small>/' + s.chargers + '대 · ' + s.max_power_kw + 'kW</small></div></div>' +
+        '</div>' +
+        (why ? '<div class="why-box"><div class="why-h">추천 이유</div>' + why + '</div>' : '') +
+        '<div class="btn-route">경로와 상세 정보 보기' +
+          '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>' +
+        '</div>' +
+      '</div></a>';
+  }).join('');
+
+  drawFallbackMap(ORIGIN, ITEMS);
+  loadNaverMaps(MAP_CLIENT_ID)
+    .then(function () { drawNaverMap(ORIGIN, ITEMS); })
+    .catch(function (msg) { showMapError(msg); });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   NAVER Web Dynamic Map 로더
+   ────────────────────────────────────────────────────────────────
+   스크립트 URL 파라미터 이름이 발급 시기에 따라 다릅니다.
+   ncpKeyId (현재) → ncpClientId (구) → clientId (구구) 순으로 시도합니다.
+   ══════════════════════════════════════════════════════════════════ */
+var MAP_AUTH_ERROR = null;
+
+/* 인증 실패 시 지도 API가 이 전역 함수를 호출합니다 — 진짜 원인이 여기 담깁니다 */
+window.navermap_authFailure = function () {
+  MAP_AUTH_ERROR = '지도 API 인증에 실패했습니다. NCP 콘솔에서 <b>Web 서비스 URL</b>에 ' +
+                   '현재 주소(http://127.0.0.1:8000, http://localhost:8000)가 등록돼 있는지 확인하세요.';
+  showMapError(MAP_AUTH_ERROR);
+};
+
+function loadNaverMaps(key) {
+  if (!key) return Promise.reject('지도 API 키가 설정되지 않았습니다.');
+  if (window.naver && window.naver.maps) return Promise.resolve();
+
+  var params = ['ncpKeyId', 'ncpClientId', 'clientId'];
+
+  function attempt(i) {
+    if (i >= params.length) {
+      return Promise.reject(MAP_AUTH_ERROR ||
+        '지도 스크립트를 불러오지 못했습니다. 키와 서비스 URL 등록을 확인하세요.');
+    }
+    return new Promise(function (done, fail) {
+      var sc = document.createElement('script');
+      sc.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?' + params[i] + '=' + key;
+      sc.onload = function () {
+        /* onload 가 떠도 인증이 막히면 naver.maps 가 없습니다 */
+        (window.naver && window.naver.maps) ? done() : fail();
+      };
+      sc.onerror = function () { fail(); };
+      document.head.appendChild(sc);
+    }).catch(function () { return attempt(i + 1); });
+  }
+  return attempt(0);
+}
+
+function showMapError(msg) {
+  var box = document.getElementById('resMap');
+  if (box.querySelector('.map-err')) return;
+  var tag = document.getElementById('resMapTag');
+  if (tag) tag.textContent = '대체 지도';
+  var d = document.createElement('div');
+  d.className = 'map-err';
+  d.innerHTML = '<b>지도를 불러오지 못했습니다.</b><br>' + msg;
+  box.appendChild(d);
+}
+
+/* ─────────── 대체 지도 (좌표를 박스 안에 비례 배치) ─────────── */
+var PIN = '<svg viewBox="0 0 30 38" fill="none"><path d="M15 37s12-13.2 12-22A12 12 0 103 15c0 8.8 12 22 12 22z" fill="#34D399"/></svg>';
+
+function drawFallbackMap(org, list) {
+  var box = document.getElementById('resMap');
+  var all = list.concat([org]), pad = 0.008;
+  var lats = all.map(function (p) { return p.lat; });
+  var lngs = all.map(function (p) { return p.lng; });
+  var y0 = Math.min.apply(null, lats) - pad, y1 = Math.max.apply(null, lats) + pad;
+  var x0 = Math.min.apply(null, lngs) - pad, x1 = Math.max.apply(null, lngs) + pad;
+
+  function put(p, cls, label) {
+    var d = document.createElement('div');
+    d.className = 'pin' + cls;
+    d.style.left = ((p.lng - x0) / (x1 - x0 || 1) * 74 + 13) + '%';
+    d.style.top  = ((1 - (p.lat - y0) / (y1 - y0 || 1)) * 62 + 22) + '%';
+    d.title = p.name || '예정 위치';
+    d.innerHTML = cls ? '<span class="ring"></span><span class="dot"></span>'
+                      : PIN + '<span class="num">' + label + '</span>';
+    box.appendChild(d);
+  }
+  put(org, ' org', '');
+  list.forEach(function (p, i) { put(p, '', i + 1); });
+}
+
+/* ─────────── 실제 지도: 출발지 1 + 추천 충전소 3 ─────────── */
+function drawNaverMap(org, list) {
+  var box = document.getElementById('resMap');
+  box.querySelectorAll('.pin').forEach(function (e) { e.remove(); });
+  document.getElementById('resMapBg').style.display = 'none';
+  document.getElementById('resMapTag').style.display = 'none';
+
+  var host = document.createElement('div');
+  host.className = 'nmap';
+  box.appendChild(host);
+
+  var map = new naver.maps.Map(host, {
+    center: new naver.maps.LatLng(org.lat, org.lng),
+    zoom: 13,
+    scaleControl: false, mapDataControl: false, logoControlOptions: { position: 3 }
+  });
+
+  var bounds = new naver.maps.LatLngBounds();
+
+  /* 출발(예정) 위치 — 파란 점 */
+  var op = new naver.maps.LatLng(org.lat, org.lng);
+  new naver.maps.Marker({
+    position: op, map: map, zIndex: 50, title: COND.loc || '예정 위치',
+    icon: {
+      content: '<div style="width:16px;height:16px;border-radius:50%;background:#38BDF8;' +
+               'border:3px solid #0B1120;box-shadow:0 0 0 4px rgba(56,189,248,.28);"></div>',
+      anchor: new naver.maps.Point(11, 11)
+    }
+  });
+  bounds.extend(op);
+
+  /* 추천 충전소 3곳 — 번호가 찍힌 초록 핀 */
+  list.forEach(function (p, i) {
+    var pos = new naver.maps.LatLng(p.lat, p.lng);
+    var mk = new naver.maps.Marker({
+      position: pos, map: map, zIndex: 40 - i, title: p.name,
+      icon: {
+        content:
+          '<div style="position:relative;width:32px;height:40px;cursor:pointer;">' +
+            '<svg viewBox="0 0 30 38" fill="none" style="position:absolute;inset:0;width:100%;height:100%;' +
+              'filter:drop-shadow(0 3px 6px rgba(2,6,23,.6));">' +
+              '<path d="M15 37s12-13.2 12-22A12 12 0 103 15c0 8.8 12 22 12 22z" fill="' +
+              (i === 0 ? '#34D399' : '#94A3B8') + '"/></svg>' +
+            '<span style="position:relative;display:block;text-align:center;margin-top:6px;' +
+              'font:800 12px/1 sans-serif;color:#04231A;">' + (i + 1) + '</span>' +
+          '</div>',
+        anchor: new naver.maps.Point(16, 40)
+      }
+    });
+
+    var info = new naver.maps.InfoWindow({
+      content: '<div style="padding:9px 12px;font:600 12px/1.5 Pretendard,sans-serif;' +
+               'color:#0B1120;max-width:200px;">' +
+               '<b>' + esc(p.name) + '</b><br>' + p.distance_km.toFixed(1) + 'km · ' +
+               esc(p.level) + '</div>',
+      borderWidth: 0, disableAnchor: false, backgroundColor: '#F8FAFC'
+    });
+    naver.maps.Event.addListener(mk, 'click', function () {
+      location.href = '/detail/?pick=' + encodeURIComponent(p.name);
+    });
+    naver.maps.Event.addListener(mk, 'mouseover', function () { info.open(map, mk); });
+    naver.maps.Event.addListener(mk, 'mouseout', function () { info.close(); });
+
+    bounds.extend(pos);
+  });
+
+  map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+}
+</script>
+</body>
+</html>

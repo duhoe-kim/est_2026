@@ -1,0 +1,353 @@
+<!doctype html>
+{% load static %}
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>미리봄 — 충전소 상세</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<link rel="stylesheet" href="{% static 'style.css' %}">
+<style>
+  a { color: inherit; text-decoration: none; }
+  a:visited { color: inherit; }
+
+  .det-map { margin: 14px 16px 0; height: 260px; border-radius: var(--r);
+             overflow: hidden; position: relative; background: #101B2D;
+             border: 1px solid var(--line); }
+  .det-map > div.nmap { width: 100%; height: 100%; }
+  .det-map svg.bg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .map-err { position: absolute; left: 12px; right: 12px; bottom: 11px; z-index: 5;
+             background: rgba(11,17,32,.92); border: 1px solid var(--line);
+             border-radius: 9px; padding: 9px 11px; font-size: 11px;
+             color: var(--sub); line-height: 1.5; }
+  .map-err b { color: var(--busy); }
+
+  /* 경로 요약 */
+  .rt-sum { display: flex; gap: 8px; margin: 11px 16px 0; }
+  .rt-sum .st { flex: 1; text-align: center; }
+  .rt-sum .st .v { font-size: 15px; }
+  .rt-note { margin: 8px 19px 0; font-size: 11px; color: var(--mut); font-weight: 600; }
+
+  /* 상세 정보 */
+  .det-card { margin: 13px 16px 0; background: var(--card); border: 1px solid var(--line);
+              border-radius: var(--r); padding: 15px; }
+  .det-name { font-size: 19px; font-weight: 800; letter-spacing: -.02em; line-height: 1.3;
+              color: var(--ink); margin: 10px 0 12px; }
+  .kv { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0;
+        border-top: 1px solid var(--line-soft); font-size: 12.5px; }
+  .kv:first-of-type { border-top: none; }
+  .kv .k { color: var(--sub); font-weight: 700; flex-shrink: 0; }
+  .kv .v { color: var(--ink); font-weight: 700; text-align: right; word-break: keep-all; }
+
+  .why-h { font-size: 8.5px; font-weight: 800; letter-spacing: .09em;
+           color: var(--mut); margin: 4px 0 7px; }
+  .why { margin-bottom: 6px; }
+
+  .gauge { height: 7px; border-radius: 999px; background: var(--card2);
+           overflow: hidden; margin: 9px 0 6px; }
+  .gauge i { display: block; height: 100%; border-radius: 999px; }
+  .gauge-l { display: flex; justify-content: space-between; font-size: 10.5px;
+             color: var(--mut); font-weight: 700; }
+</style>
+</head>
+<body class="page">
+
+{{ payload|json_script:"payload-data" }}
+{{ item|json_script:"item-data" }}
+
+<section class="screen active" id="sc4">
+
+  <div class="rt-head">
+    <a class="btn-sm" href="{% url 'result' %}" style="padding:8px 10px;" aria-label="뒤로">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>
+    </a>
+    <div class="ttl" style="flex:1;min-width:0;">
+      <span class="tico"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><circle cx="18" cy="5" r="3"/><path d="M9 19h6a4 4 0 000-8H9a4 4 0 010-8h6"/></svg></span>
+      <div class="rt-h" style="margin:0;">경로와 충전소 정보</div>
+    </div>
+    <a class="btn-sm" href="{% url 'home' %}">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8"/><path d="M3 3v5h5"/></svg>
+      재설정
+    </a>
+  </div>
+
+  <div class="det-map" id="detMap">
+    <svg class="bg" viewBox="0 0 360 260" preserveAspectRatio="none" id="detMapBg">
+      <g stroke="#1B2942" stroke-width="1"><path d="M0 65H360M0 130H360M0 195H360M90 0V260M180 0V260M270 0V260"/></g>
+      <g stroke="#26364C" stroke-linecap="round">
+        <path d="M-15 88L380 54" stroke-width="12"/><path d="M64 -15L214 275" stroke-width="10"/><path d="M-15 206L380 172" stroke-width="8"/>
+      </g>
+    </svg>
+    <div class="mdim" id="detMapTag" style="left:12px;top:11px;">경로 불러오는 중…</div>
+  </div>
+  <div class="maplg">
+    <span><i class="o"></i>출발 (예정 위치)</span>
+    <span><i class="s"></i>선택한 충전소</span>
+  </div>
+
+  <!-- Directions 5 요약 -->
+  <div class="rt-sum" id="rtSum" style="display:none;">
+    <div class="st"><div class="l">주행 거리</div><div class="v mono" id="rtDist">–</div></div>
+    <div class="st"><div class="l">예상 시간</div><div class="v mono" id="rtTime">–</div></div>
+    <div class="st"><div class="l">통행료</div><div class="v mono" id="rtToll">–</div></div>
+  </div>
+  <div class="rt-note" id="rtNote"></div>
+
+  <div id="body"></div>
+  <a class="cta ghost" href="{% url 'result' %}" style="margin-top:14px;">다른 충전소 비교하기</a>
+  <div class="p-foot">TEAM 미리봄 · EST AI CHALLENGERS</div>
+</section>
+
+<script>
+var DATA   = JSON.parse(document.getElementById('payload-data').textContent);
+var ITEM   = JSON.parse(document.getElementById('item-data').textContent);
+var ORIGIN = DATA.origin || {};
+var COND   = DATA.cond || {};
+var MAP_CLIENT_ID = "{{ map_client_id|escapejs }}";
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+var GRADE = { '여유': 'b-free', '보통': 'b-warn', '혼잡': 'b-busy' };
+var GCOLOR = { '여유': '#34D399', '보통': '#FBBF24', '혼잡': '#F87171' };
+
+var free = Math.max(0, Math.min(ITEM.chargers,
+             Math.round(ITEM.chargers * (1 - ITEM.congestion_prob))));
+var pct = Math.round(ITEM.congestion_prob * 100);
+
+var when = new Date(DATA.when);
+var whenText = isNaN(when) ? '' :
+  (when.getMonth() + 1) + '월 ' + when.getDate() + '일 ' +
+  String(when.getHours()).padStart(2, '0') + ':00';
+
+/* ─────────── 충전소 정보 ─────────── */
+var why = (ITEM.reasons || []).map(function (t) {
+  return '<div class="why">' + esc(t) + '</div>';
+}).join('');
+
+document.getElementById('body').innerHTML =
+  '<div class="det-card">' +
+    '<div style="display:flex;align-items:center;gap:9px;">' +
+      '<span class="badge ' + (GRADE[ITEM.level] || 'b-warn') + '"><i></i>' + esc(ITEM.level) + '</span>' +
+      '<span class="mono" style="font-size:11px;color:var(--sub);">' + esc(whenText) + ' 기준</span>' +
+      '<span class="rk" style="margin-left:auto;">' + ITEM.rank + '</span>' +
+    '</div>' +
+
+    '<div class="det-name">' + esc(ITEM.name) + '</div>' +
+
+    '<div class="gauge"><i style="width:' + Math.max(3, pct) + '%;background:' +
+      (GCOLOR[ITEM.level] || '#FBBF24') + ';"></i></div>' +
+    '<div class="gauge-l"><span>예상 혼잡도 ' + pct + '%</span><span>여유 ← → 혼잡</span></div>' +
+
+    '<div class="rc-stats" style="margin-top:13px;">' +
+      '<div class="st"><div class="l">직선 거리</div>' +
+        '<div class="v mono">' + ITEM.distance_km.toFixed(1) + '<small>km</small></div></div>' +
+      '<div class="st"><div class="l">이용 가능 <span class="est">예측</span></div>' +
+        '<div class="v mono">' + free + '<small>/' + ITEM.chargers + '대</small></div></div>' +
+    '</div>' +
+
+    '<div class="kv"><span class="k">충전기 대수</span><span class="v">' + ITEM.chargers + '대</span></div>' +
+    '<div class="kv"><span class="k">최대 출력</span><span class="v">' + ITEM.max_power_kw + 'kW</span></div>' +
+    (ITEM.station_type ? '<div class="kv"><span class="k">충전소 유형</span><span class="v">' + esc(ITEM.station_type) + '</span></div>' : '') +
+    (ITEM.sigungu ? '<div class="kv"><span class="k">지역</span><span class="v">' + esc(ITEM.sigungu) + '</span></div>' : '') +
+    '<div class="kv"><span class="k">좌표</span><span class="v mono">' +
+      ITEM.lat.toFixed(5) + ', ' + ITEM.lng.toFixed(5) + '</span></div>' +
+    '<div class="kv"><span class="k">출발지</span><span class="v">' + esc(COND.loc || '예정 위치') + '</span></div>' +
+
+    (why ? '<div style="margin-top:13px;"><div class="why-h">추천 이유</div>' + why + '</div>' : '') +
+
+    '<div class="estnote" style="margin-top:12px;">' +
+      '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11 12h1v4h1"/></svg>' +
+      '<span>이용 가능 대수는 과거 이용 패턴으로 계산한 <b>예측값</b>이며 실제 빈자리를 보장하지 않습니다.</span>' +
+    '</div>' +
+  '</div>';
+
+/* ══════════════════════════════════════════════════════════════════
+   지도 + 경로
+   ══════════════════════════════════════════════════════════════════ */
+var MAP_AUTH_ERROR = null;
+
+window.navermap_authFailure = function () {
+  MAP_AUTH_ERROR = '지도 API 인증에 실패했습니다. NCP 콘솔에서 <b>Web 서비스 URL</b>에 ' +
+                   '현재 주소(http://127.0.0.1:8000, http://localhost:8000)가 등록돼 있는지 확인하세요.';
+  showMapError(MAP_AUTH_ERROR);
+};
+
+function loadNaverMaps(key) {
+  if (!key) return Promise.reject('지도 API 키가 설정되지 않았습니다.');
+  if (window.naver && window.naver.maps) return Promise.resolve();
+
+  var params = ['ncpKeyId', 'ncpClientId', 'clientId'];
+  function attempt(i) {
+    if (i >= params.length) {
+      return Promise.reject(MAP_AUTH_ERROR ||
+        '지도 스크립트를 불러오지 못했습니다. 키와 서비스 URL 등록을 확인하세요.');
+    }
+    return new Promise(function (done, fail) {
+      var sc = document.createElement('script');
+      sc.src = 'https://oapi.map.naver.com/openapi/v3/maps.js?' + params[i] + '=' + key;
+      sc.onload = function () { (window.naver && window.naver.maps) ? done() : fail(); };
+      sc.onerror = function () { fail(); };
+      document.head.appendChild(sc);
+    }).catch(function () { return attempt(i + 1); });
+  }
+  return attempt(0);
+}
+
+function showMapError(msg) {
+  var box = document.getElementById('detMap');
+  if (box.querySelector('.map-err')) return;
+  var tag = document.getElementById('detMapTag');
+  if (tag) tag.textContent = '대체 지도';
+  var d = document.createElement('div');
+  d.className = 'map-err';
+  d.innerHTML = '<b>지도를 불러오지 못했습니다.</b><br>' + msg;
+  box.appendChild(d);
+}
+
+/* 대체 지도 (지도 API가 안 될 때) */
+var PIN = '<svg viewBox="0 0 30 38" fill="none"><path d="M15 37s12-13.2 12-22A12 12 0 103 15c0 8.8 12 22 12 22z" fill="#34D399"/></svg>';
+
+function drawFallbackMap() {
+  var box = document.getElementById('detMap'), pad = 0.006;
+  var pts = [ORIGIN, ITEM];
+  var lats = pts.map(function (p) { return p.lat; });
+  var lngs = pts.map(function (p) { return p.lng; });
+  var y0 = Math.min.apply(null, lats) - pad, y1 = Math.max.apply(null, lats) + pad;
+  var x0 = Math.min.apply(null, lngs) - pad, x1 = Math.max.apply(null, lngs) + pad;
+
+  function put(p, cls, label) {
+    var d = document.createElement('div');
+    d.className = 'pin' + cls;
+    d.style.position = 'absolute';
+    d.style.left = ((p.lng - x0) / (x1 - x0 || 1) * 74 + 13) + '%';
+    d.style.top  = ((1 - (p.lat - y0) / (y1 - y0 || 1)) * 62 + 22) + '%';
+    d.style.transform = 'translate(-50%,-50%)';
+    d.style.width = cls ? '15px' : '23px';
+    d.style.height = cls ? '15px' : '23px';
+    d.style.borderRadius = '50%';
+    d.style.background = cls ? '#38BDF8' : '#34D399';
+    d.style.border = '2.5px solid #0F172A';
+    d.style.display = 'flex';
+    d.style.alignItems = 'center';
+    d.style.justifyContent = 'center';
+    d.style.font = '800 11px/1 sans-serif';
+    d.style.color = '#052E1F';
+    d.textContent = label;
+    d.title = p.name || '예정 위치';
+    box.appendChild(d);
+  }
+  put(ORIGIN, ' org', '');
+  put(ITEM, '', '1');
+}
+
+/* 경로 API 호출 */
+function fetchRoute() {
+  var qs = new URLSearchParams({
+    slat: ORIGIN.lat, slng: ORIGIN.lng, glat: ITEM.lat, glng: ITEM.lng, option: 'trafast'
+  });
+  return fetch('/api/route/?' + qs.toString()).then(function (r) { return r.json(); });
+}
+
+function fmtDist(m) {
+  if (m == null) return '–';
+  return m >= 1000 ? (m / 1000).toFixed(1) + 'km' : Math.round(m) + 'm';
+}
+function fmtDur(ms) {
+  if (ms == null) return '–';
+  var min = Math.round(ms / 60000);
+  return min >= 60 ? Math.floor(min / 60) + '시간 ' + (min % 60) + '분' : min + '분';
+}
+
+function showSummary(r) {
+  document.getElementById('rtSum').style.display = 'flex';
+  document.getElementById('rtDist').textContent = fmtDist(r.distance_m);
+  document.getElementById('rtTime').textContent = fmtDur(r.duration_ms);
+  document.getElementById('rtToll').textContent =
+    (r.toll_fare == null || r.toll_fare === 0) ? '없음' : r.toll_fare.toLocaleString() + '원';
+  document.getElementById('rtNote').textContent =
+    '실시간 빠른길(trafast) 기준 · Directions 5' +
+    (r.fuel_price ? ' · 예상 유류비 ' + r.fuel_price.toLocaleString() + '원' : '');
+}
+
+/* 지도 + 경로 그리기 */
+drawFallbackMap();
+
+Promise.all([
+  loadNaverMaps(MAP_CLIENT_ID).then(function () { return true; })
+                              .catch(function (m) { showMapError(m); return false; }),
+  fetchRoute().catch(function () { return { ok: false, message: '경로 요청에 실패했습니다.' }; })
+]).then(function (res) {
+  var mapOk = res[0], route = res[1];
+
+  if (route && route.ok) {
+    showSummary(route);
+  } else {
+    document.getElementById('rtNote').textContent =
+      (route && route.message ? route.message : '경로를 불러오지 못했습니다.') +
+      ' 직선 거리 ' + ITEM.distance_km.toFixed(1) + 'km 로 표시합니다.';
+  }
+
+  if (!mapOk) return;
+
+  var box = document.getElementById('detMap');
+  box.querySelectorAll('.pin').forEach(function (e) { e.remove(); });
+  document.getElementById('detMapBg').style.display = 'none';
+  document.getElementById('detMapTag').style.display = 'none';
+
+  var host = document.createElement('div');
+  host.className = 'nmap';
+  box.appendChild(host);
+
+  var map = new naver.maps.Map(host, {
+    center: new naver.maps.LatLng(ITEM.lat, ITEM.lng), zoom: 14,
+    scaleControl: false, mapDataControl: false
+  });
+  var bounds = new naver.maps.LatLngBounds();
+
+  var op = new naver.maps.LatLng(ORIGIN.lat, ORIGIN.lng);
+  var gp = new naver.maps.LatLng(ITEM.lat, ITEM.lng);
+
+  /* Directions 5 가 준 경로선. 실패하면 출발–도착 직선으로 대신 그립니다. */
+  var pathLatLng = (route && route.ok && route.path && route.path.length)
+    ? route.path.map(function (c) { return new naver.maps.LatLng(c[1], c[0]); })
+    : [op, gp];
+
+  new naver.maps.Polyline({
+    map: map, path: pathLatLng,
+    strokeColor: '#34D399', strokeOpacity: 0.95, strokeWeight: 6,
+    strokeLineCap: 'round', strokeLineJoin: 'round',
+    strokeStyle: (route && route.ok) ? 'solid' : 'shortdash'
+  });
+
+  new naver.maps.Marker({
+    position: op, map: map, zIndex: 50, title: COND.loc || '출발',
+    icon: {
+      content: '<div style="width:16px;height:16px;border-radius:50%;background:#38BDF8;' +
+               'border:3px solid #0B1120;box-shadow:0 0 0 4px rgba(56,189,248,.28);"></div>',
+      anchor: new naver.maps.Point(11, 11)
+    }
+  });
+
+  new naver.maps.Marker({
+    position: gp, map: map, zIndex: 51, title: ITEM.name,
+    icon: {
+      content: '<div style="position:relative;width:32px;height:40px;">' +
+        '<svg viewBox="0 0 30 38" fill="none" style="position:absolute;inset:0;width:100%;height:100%;' +
+        'filter:drop-shadow(0 3px 6px rgba(2,6,23,.6));">' +
+        '<path d="M15 37s12-13.2 12-22A12 12 0 103 15c0 8.8 12 22 12 22z" fill="#34D399"/></svg>' +
+        '<span style="position:relative;display:block;text-align:center;margin-top:6px;' +
+        'font:800 12px/1 sans-serif;color:#04231A;">⚡</span></div>',
+      anchor: new naver.maps.Point(16, 40)
+    }
+  });
+
+  pathLatLng.forEach(function (p) { bounds.extend(p); });
+  bounds.extend(op); bounds.extend(gp);
+  map.fitBounds(bounds, { top: 46, right: 40, bottom: 40, left: 40 });
+});
+</script>
+</body>
+</html>
